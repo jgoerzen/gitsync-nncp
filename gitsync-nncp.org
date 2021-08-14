@@ -339,6 +339,14 @@ sync:
 
 All this does is make a little convenient wrapper around the sync and push commands.  In my user's crontab, I call =make -C $HOME/org push 2>&1 | logger --tag 'orgsync'= .  I can also =make sync= whenever I want.
 
+* Warnings
+
+It's important that:
+
+- Every machine have a uniquely-named branch that is checked out locally
+- The gitsync-nncp commands are never run when a different branch is the current one on a machine
+
+
 * COPYRIGHT
 
     gitsync-nncp
