@@ -339,6 +339,10 @@ sync:
 
 All this does is make a little convenient wrapper around the sync and push commands.  In my user's crontab, I call =make -C $HOME/org push 2>&1 | logger --tag 'orgsync'= .  I can also =make sync= whenever I want.
 
+* Out-of-order packet delivery
+
+NNCP doesn't guarantee packets are delivered in order.  That's fine, because when packets are delivered out of order, =gitsync-nncp receive= will fail with an error code.  That will cause =nncp-toss= to retry the delivery at the next toss.  This may require a few toss cycles to get everything delivered, but it will eventually.
+
 * Warnings
 
 It's important that:
