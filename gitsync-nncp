@@ -138,9 +138,9 @@ cmd_push () {
         TMPDIR="$(mktempdir)"
         trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
         BUNDLENAME="$TMPDIR/bundle"
-        PUSHEDREV="$(git rev-parse "refs/heads/$BRANCH")"
         runcommand git bundle create "$BUNDLENAME" "refs/heads/${GSNBRANCH}..HEAD"
         runcommand "$@" "$BRANCH" < "$BUNDLENAME"
+        PUSHEDREV="$(git ls-remote "$BUNDLENAME" | grep 'HEAD$' | awk '{ print $1 }')"
         runcommand git update-ref "refs/heads/$GSNBRANCH" "$PUSHEDREV"
 
         # TMPDIR reaped automatically thanks to mktempdir
