@@ -183,6 +183,7 @@ All commands will:
 
 - Verify that they are operating on a git repository
 - Verify that there is no merge in progress
+- Verify that the current branch isn't named =master= or =main=, as an attempt at something of a sanity check that you're on a branch with a unique name (it is, of course, not a guarantee of this)
 
 If either of these checks fail, the commands will abort immediately.
 
@@ -228,11 +229,11 @@ The idea of it is: commit our local changes, merge in remote ones, and then send
 
 * Use in cron
 
-It is perfectly safe to call =gitsync-nncp push= from cron.  This is one way to make sure that you periodically update the remote with your local changes.
+It is safe to call =gitsync-nncp push_full= from cron.  This is one way to make sure that you periodically update the remote with your local changes.  (Remember to do git adds also!)
 
 * Use in git hooks
 
-It is also safe to call =gitsync-nncp push= from a git post-commit hook.  This will cause every local commit to be immediately propagated to the remote.
+It is also safe to call =gitsync-nncp push= from a git post-commit hook.  This will cause every local commit to be immediately propagated to the remote.  It is probably unwise to do =push_full= from a post-commit hook, since that could lead to a potentially confusing situation where one =git commit= could introduce two commits.
 
 * Example: non-NNCP commands: gpg encryption of packets
 
@@ -337,7 +338,13 @@ sync:
 	$(GS) sync $(SENDCMD)
 #+end_src
 
-All this does is make a little convenient wrapper around the sync and push commands.  In my user's crontab, I call =make -C $HOME/org push 2>&1 | logger --tag 'orgsync'= .  I can also =make sync= whenever I want.
+All this does is make a little convenient wrapper around the sync and push commands.  In my user's crontab, I call:
+
+#+begin_example
+make -C $HOME/org push 2>&1 | logger --tag 'orgsync'
+#+end_example
+
+I can also =make sync= whenever I want.
 
 * Out-of-order packet delivery
 
@@ -349,7 +356,6 @@ It's important that:
 
 - Every machine have a uniquely-named branch that is checked out locally
 - The gitsync-nncp commands are never run when a different branch is the current one on a machine
-
 
 * COPYRIGHT
 
