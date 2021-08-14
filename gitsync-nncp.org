@@ -2,16 +2,99 @@
 
 * Introduction
 ** Why it's here
+
+Sometimes you have some directories of files you'd like to keep synced between multiple.  But not just that: you want a nice history kept, intelligent conflict resolution, and so forth.  [[https://git-scm.com/][git]] is an obvious solution for this.  Perhaps also some of your data is sensitive.
+
+But then, how do you handle the transport, especially if, say, both machines are behind a firewall, one is a laptop that travels, etc?
+
+- Maybe you try setting up a git server on a VPS somewhere.  But:
+  - That costs money.
+  - And, your sensitive data may be exposed.  (You could use things like git-remote-gcrypt or git-crypt, but they are finicky, a hassle, and hard to get right.)
+- Maybe you could try sharing your repo with something like [[https://www.syncthing.net/][Syncthing]] or Dropbox.
+  - This is a recipe for all sorts of git errors due to race conditions and conflicts when two machines try to modify the file at once.
+- OK, so maybe you could work up some sort of complicated scheme where there is a second repo on Syncthing, and only one machine modifies it, and the others send their changes to the master machine, and...
+  - Yeah, I did that.  It's even more complicated and finicky than it sounds.
+  - Also that has issues if the master machine is down.
+
+What we really want is something that:
+
+- Does the basic syncing and history
+- Is resilient in the face of conflicts and races
+- Doesn't require any particular machine to be in charge
+- Doesn't require two machines to be online simultaneously (asynchronous data transfer)
+
+[[https://nncp.mirrors.quux.org/][NNCP]] (see my [[https://changelog.complete.org/archives/tag/nncp][blog series]] about it) is like ssh, but for asynchronous communication.  Thanks to its new [[https://nncp.mirrors.quux.org/Multicast.html][multicast areas]] support, it can actually handle this situation quite efficiently.
+
+gitsync-nncp does all of that.
+
+** Feature List
+
+Besides the above, gitsync-nncp:
+
+- Is designed to be easily scriptable and cronnable
+- Is written in easy-to-understand shell code
+- Is designed to be as safe as possible
+- Doesn't actually require NNCP; the transmission parts are entirely separate and you can substitute your own transport.  It's all just pipes.
+
+gitsync-nncp is NOT:
+
+- Suitable for use with untrusted peers.  It's designed to be used with only your own machines.  Making it suitable for untrusted peers would probably require rewriting in something other than shell and doing a lot more input validation.
+
 ** Operation Overview
 
-branch names - like hostnames, no master
+With gitsync-nncp, the idea is there is no master/main branch.  Every machine works on a branch with a unique name (often the hostname of the machine).  Each repo also contains branches named =gitsync-nncp/*=, one for each machine in the cluster (including the local one).  These are roughly analogous to git's remote-tracking branches.
+
+
 
 * Setup
 ** Installing NNCP
 
+Of course, you'll need to install NNCP before you can use this.  The [[http://www.nncpgo.org/][NNCP homepage]] or [[https://nncp.mirrors.quux.org/][https mirror]] document this for you.
+
 ** Adding an area (optional)
 
-This approach works best when there is an NNCP "area" available to use.  [[https://nncp.mirrors.quux.org/Multicast.html][NNCP's areas documentation]] introduce you to them.  You'll need to
+This approach works best when there is an NNCP "area" available to use.  [[https://nncp.mirrors.quux.org/Multicast.html][NNCP's areas documentation]] introduce you to them.  You'll need to add something to your configuration file.  Please refer to NNCP's areas documentation for details.
+
+You can begin by running =nncp-cfgnew -area localgit=.  This will emit a configuration snippet such as this:
+
+#+begin_example
+areas: {
+  localgit: {
+    id: ...
+
+    # KEEP AWAY keypair from the nodes you want only participate in multicast
+    pub: ...
+    prv: ...
+
+    # List of subscribers you should multicast area messages to
+    # subs: ["alice"]
+
+    # Allow incoming files (from the area) saving in that directory
+    # incoming: /home/areas/localgit/incoming
+
+    # Allow incoming area commands execution
+    # exec: {sendmail: ["/usr/sbin/sendmail"]}
+
+    # Allow unknown sender's message tossing (relaying will be made anyway)
+    # allow-unknown: true
+  }
+}
+#+end_example
+
+Add this to your nncp.hjson configuration file before the final =}=, and let's start editing.
+
+First, you'll need to list all the machines that should receive the updates in the =subs= line.  (Footnote: some complicated topologies may not require you to, but those are beyond the scope of this document.)  Uncomment that line and add them.
+
+Next, we'll need to define an exec line, one for each git repo you want this group of machines to be able to participate in.  For instance:
+
+#+begin_example
+exec: {
+  repo1: ["/path/tp/gitsync-nncp", "receive", "/home/git/repo1"]
+  repo2: ["/path/to/gitsync-nncp", "receive", "/home/git/repo2"]
+}
+#+end_example
+
+Save this, then copy the entire area section to the nncp.hjson on each machine.  OK, you're ready to go!
 
 ** Making a new git repo
 
@@ -53,7 +136,7 @@ git branch gitsync-nncp/claire
 
 ** Using an existing git repo
 
-This setup doesn't use a master/main branch; every host has a branch named after it.  You can, of course, use on outside of gitsync-nncp, but then you have the question of "which machine should update the main branch, and once updated, what is its purpose anyhow?"
+This setup doesn't use a master/main branch; every host has a branch named after it.  You can, of course, use one outside of gitsync-nncp, but then you have the question of "which machine should update the main branch, and once updated, what is its purpose anyhow?"
 
 After making sure all clones of the repo are at the same revision, you would want to simply rename the master/main branch on every machine to its local hostname; for instance:
 
@@ -66,3 +149,9 @@ git branch gitsync-nncp/bob
 git branch gitsync-nncp/alice
 git branch gitsync-nncp/claire
 #+end_example
+
+* Other
+order of packets
+cron
+commit hooks
+gpg
