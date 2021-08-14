@@ -101,7 +101,7 @@ branchcheck () {
 # Test for differences between two branches.  Returns 0 (true) if
 # identical; nonzero (false) if different.
 branches_same () {
-    [ "$(git rev-parse "$1")" = "$(git rev-parse "$2")" ]
+    [ "$(git rev-parse "refs/heads/$1")" = "$(git rev-parse "refs/heads/$2")" ]
 }
 
 # Test for the existence of the named branch.
@@ -114,9 +114,10 @@ branch_exists () {
 # Create a temporary directory
 mktempdir () {
     TMPDIR="$(mktemp -d)"
-    trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
+
     echo "$TMPDIR"
 }
+
 
 # Push committed changes.  Requires the name of a command to send and
 # optional parameters; will pass the name of the branch to it, and pipe
@@ -135,13 +136,17 @@ cmd_push () {
 
     if ! branches_same "$BRANCH" "$GSNBRANCH"; then
         TMPDIR="$(mktempdir)"
+        trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
         BUNDLENAME="$TMPDIR/bundle"
-        PUSHEDREV="$(git rev-parse "$BRANCH")"
-        runcommand git bundle create "$BUNDLENAME" "${GSNBRANCH}..HEAD"
+        PUSHEDREV="$(git rev-parse "refs/heads/$BRANCH")"
+        runcommand git bundle create "$BUNDLENAME" "refs/heads/${GSNBRANCH}..HEAD"
         runcommand "$@" "$BRANCH" < "$BUNDLENAME"
-        runcommand git update-ref "$GSNBRANCH" "$PUSHEDREV"
+        runcommand git update-ref "refs/heads/$GSNBRANCH" "$PUSHEDREV"
 
         # TMPDIR reaped automatically thanks to mktempdir
+        echo "+++ push of $BRANCH successful"
+    else
+        echo "+++ No changes to push on $BRANCH"
     fi
 }
 
@@ -152,10 +157,11 @@ cmd_autocommit () {
     BRANCH="$(getbranch)"
     if git diff --quiet && git diff --cached --quiet; then
         # Nothing to commit
-        exit 0
+        true
+    else
+        runcommand git commit -am "Automated commit by $0 on host $(hostname), branch $BRANCH"
     fi
 
-    runcommand git commit -am "Automated commit by $0 on host $(hostname), branch $BRANCH"
 }
 
 # Like cmd_push, but does a commit first.
@@ -177,10 +183,12 @@ cmd_receive () {
     fi
 
     TMPDIR="$(mktempdir)"
+    trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
     BUNDLENAME="$TMPDIR/bundle"
     cat > "$BUNDLENAME"
 
-    runcommand git fetch "$BUNDLENAME" "HEAD:$GSNBRANCH"
+    runcommand git fetch "$BUNDLENAME" "HEAD:refs/heads/$GSNBRANCH"
+    echo "+++ Receive of $BRANCH into $1 successful"
 }
 
 # Merge all remote branches.

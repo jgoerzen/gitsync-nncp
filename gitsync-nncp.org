@@ -7,6 +7,12 @@
 branch names - like hostnames, no master
 
 * Setup
+** Installing NNCP
+
+** Adding an area (optional)
+
+This approach works best when there is an NNCP "area" available to use.  [[https://nncp.mirrors.quux.org/Multicast.html][NNCP's areas documentation]] introduce you to them.  You'll need to
+
 ** Making a new git repo
 
 You can use =git init= like usual, but then rename the main/master branch to something unique for your machine; for instance, its hostname; for instance:
@@ -17,6 +23,46 @@ Now, we also need to create another branch that gitsync-nncp uses to track progr
 
 =git branch gitsync-nncp/alice=
 
+OK, that's it for the setup process for the first repo.  Now, on to setting up subsequent repos.
 
+** Setting up the second and subsequent repos
+
+In this example, we'll assume "alice" is an existing machine with a repo, and "bob" is the new one.
+
+First, you want to make sure your existing repos are all synced (HEAD is the same).
+
+Now, on EVERY existing machine (such as alice in this example), you need to make a branch for tracking the new machine:
+
+=git branch gitsync-nncp/bob=
+
+Next, on the new machine, you'll first want to clone the original.  For instance, let's say we're on machine bob and are copying from alice:
+
+=git clone alice:repo=
+
+Now, we need to rename the branch to the local machine as before:
+
+=git branch -m bob=
+
+Next, we need to create the gitsync-nncp branches for both the local and ALL other remotes.  For instance:
+
+#+begin_example
+git branch gitsync-nncp/bob
+git branch gitsync-nncp/alice
+git branch gitsync-nncp/claire
+#+end_example
 
 ** Using an existing git repo
+
+This setup doesn't use a master/main branch; every host has a branch named after it.  You can, of course, use on outside of gitsync-nncp, but then you have the question of "which machine should update the main branch, and once updated, what is its purpose anyhow?"
+
+After making sure all clones of the repo are at the same revision, you would want to simply rename the master/main branch on every machine to its local hostname; for instance:
+
+=git branch -m alice=
+
+Then you'll want to create the gitsync-nncp branches for each participating machine (including the one you're working on); for instance:
+
+#+begin_example
+git branch gitsync-nncp/bob
+git branch gitsync-nncp/alice
+git branch gitsync-nncp/claire
+#+end_example
