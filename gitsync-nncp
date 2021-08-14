@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#    gitsync-nncp
+#    Copyright (C) 2021 JOhn Goerzen <jgoerzen@complete.org>
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Log a message
+logit () {
+   logger -p info -t "`basename "$0"`[$$]" "$1"
+}
+
+# Log an error message
+logerror () {
+   logger -p err -t "`basename "$0"`[$$]" "$1"
+}
+
+# Log stdin with the given code.  Used normally to log stderr.
+logstdin () {
+   logger -p info -t "`basename "$0"`[$$/$1]"
+}
+
+# Run command, logging stderr and exit code
+runcommand () {
+   logit "Running $*"
+   if "$@" 2> >(logstdin "$1") ; then
+      logit "$1 exited successfully"
+      return 0
+   else
+       RETVAL="$?"
+       logerror "$1 exited with error $RETVAL"
+       return "$RETVAL"
+   fi
+}
+
+exiterror () {
+   logerror "$1"
+   echo "$1" 1>&2
+   exit 10
+}
+
+syntaxerror () {
+    cat <<EOF
+Syntax: $0 command [params...]
+
+
+EOF
+    exit 5
+}
+
+if [ -z "${1:-}"  ]; then
+    syntaxerror
+fi
+
+getbranch () {
+    # See https://stackoverflow.com/questions/1593051/how-to-programmatically-determine-the-current-checked-out-git-branch#1593487
+    #git rev-parse --symbolic-full-name --abbrev-ref HEAD
+    git symbolic-ref --short HEAD
+}
+
+branchcheck () {
+    if ! [ -d .git  ]; then
+        exiterror "No .git in $(pwd)"
+    fi
+
+    BRANCH="$(getbranch)"
+    if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "main" ]; then
+        exiterror "On main/master branch; aborting"
+    fi
+
+    if [ -e .git/MERGE_HEAD ]; then
+        exiterror "Merge in progress; aborting"
+    fi
+}
+
+# Test for differences between two branches.  Returns 0 (true) if
+# identical; nonzero (false) if different.
+branches_same () {
+    [ "$(git rev-parse "$1")" = "$(git rev-parse "$2")" ]
+}
+
+# Test for the existence of the named branch.
+branch_exists () {
+    # See https://stackoverflow.com/questions/5167957/is-there-a-better-way-to-find-out-if-a-local-git-branch-exists
+    #git rev-parse --verify "$1" &> /dev/null
+    git show-ref --quiet "refs/heads/$1"
+}
+
+# Create a temporary directory
+mktempdir () {
+    TMPDIR="$(mktemp -d)"
+    trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
+    echo "$TMPDIR"
+}
+
+# Push committed changes.  Requires the name of a command to send and
+# optional parameters; will pass the name of the branch to it, and pipe
+# the bundle to it.
+cmd_push () {
+    branchcheck
+    BRANCH="$(getbranch)"
+    GSNBRANCH="gitsync-nncp/$(BRANCH)"
+
+    if ! branch_exists "$GSNBRANCH"; then
+        syntaxerror "Branch $GSNBRANCH missing"
+    fi
+
+    TMPDIR="$(mktempdir)"
+    BUNDLENAME="$TMPDIR/bundle"
+    runcommand git bundle create "$BUNDLENAME" "${GSNBRANCH}..HEAD"
+    runcommand "$@" "$BRANCH" < "$BUNDLENAME"
+
+    # TMPDIR reaped automatically thanks to mktempdir
+}
+
+# Automatically commits any uncommitted (and added) changes, if any.
+# Commits to -a to get all changes.
+cmd_autocommit () {
+    branchcheck
+    BRANCH="$(getbranch)"
+    if git diff --exit-code && git diff --cached --exit-code; then
+        # Nothing to commit
+        exit 0
+    fi
+
+    runcommand git commit -am "Automated commit by $0 on $(hostname) on branch $BRANCH"
+}
+
+# Like cmd_push, but does a commit first.
+cmd_push_full () {
+    cmd_autocommit
+    cmd_push "$@"
+}
+
+# Expects a bundle on stdin, and a repo directory and branch name as parameter.
+cmd_receive () {
+    cd "$1"
+    branchcheck
+    BRANCH="$2"
+
+    GSNBRANCH="gitsync-nncp/$(BRANCH)"
+
+    if ! branch_exists "$GSNBRANCH"; then
+        syntaxerror "Branch $GSNBRANCH missing"
+    fi
+
+    TMPDIR="$(mktempdir)"
+    BUNDLENAME="$TMPDIR/bundle"
+    cat > "$BUNDLENAME"
+
+    runcommand git fetch "$BUNDLENAME" "HEAD:$GSNBRANCH"
+}
+
+# Merge all remote branches.
+cmd_merge () {
+    branchcheck
+    for BRANCH in $(git for-each-ref --format '%(refname:short)' refs/heads/gitsync-nncp); do
+        echo "+++ Merging $BRANCH"
+        git merge "$BRANCH"
+        if [ -f .git/MERGE_HEAD ]; then
+            exiterror "Merge of $BRANCH resulted in conflict; manual resolution required."
+        fi
+    done
+}
+
+# Perform a full sync.  Requires push args.
+cmd_sync () {
+    cmd_autocommit
+    cmd_merge
+    cmd_push "$@"
+}
