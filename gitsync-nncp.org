@@ -35,6 +35,7 @@ Besides the above, gitsync-nncp:
 - Is written in easy-to-understand shell code
 - Is designed to be as safe as possible
 - Doesn't actually require NNCP; the transmission parts are entirely separate and you can substitute your own transport.  It's all just pipes.
+- Logs to syslog
 
 gitsync-nncp is NOT:
 
@@ -44,7 +45,11 @@ gitsync-nncp is NOT:
 
 With gitsync-nncp, the idea is there is no master/main branch.  Every machine works on a branch with a unique name (often the hostname of the machine).  Each repo also contains branches named =gitsync-nncp/*=, one for each machine in the cluster (including the local one).  These are roughly analogous to git's remote-tracking branches.
 
+After you make a local change, gitsync-nncp compares your local branch (say, =alice=) to the previous saved state of it (=gitsync-nncp/alice=).  Then, it generates a [[https://git-scm.com/docs/git-bundle][git bundle]] that represents all the commits between the prior state and the current one.  These are sent to NNCP (or some other program of your choice) for distribution to all the other nodes.
 
+When your system receives an NNCP packet for the repo from a remote - which can happen at any time - all it does is update the =gitsync-nncp= branch for the remote.
+
+At some point, you want to update your working tree with changes made on the remotes.  This is the one command that is potentially interactive, because in the event of a conflict, you may need to resolve it manually.  This process simply merges the changes from all the remote branches into your local branch.  Your local branch's new state will be propagated to all the others on the next push.
 
 * Setup
 ** Installing NNCP
@@ -150,8 +155,204 @@ git branch gitsync-nncp/alice
 git branch gitsync-nncp/claire
 #+end_example
 
-* Other
-order of packets
-cron
-commit hooks
-gpg
+* Usage
+
+Now, let's start working!  You start hacking on some things, and then you can run:
+
+=gitsync-nncp sync nncp-exec area:localgit repo1=
+
+This will do several things:
+
+1. Automatically generate a git commit, if needed, reflecting local changes
+2. Merge in any changes that were made on remotes
+3. Push the new local branch state to the other machines.
+
+If the local branch state was different than before the command ran, then the git bundle will be piped to the command given as a parameter to =gitsync-nncp sync=, adding on the name of the local branch at the end.  So here, it runs =nncp-exec area:localgit repo1 alice= - but only if there are changes to send.
+
+On each remote, because of your configuration, it will automatically run =gitsync-nncp receive /home/git/repo1 alice=.  This receives the updates and applies them to the =gitsync-nncp/alice= branch on each remote -- but it doesn't touch their working directories.
+
+The next time you run =gitsync-nncp sync= on a remote, you'll merge in any changes that are pending and go from there.  Easy!
+
+You can, of course, set up a shell alias or script so you don't have to type that whole command all the time.
+
+Next, I'll go into a command summary and then cover some more advanced topics.
+
+* Commands
+
+All commands will:
+
+- Verify that they are operating on a git repository
+- Verify that there is no merge in progress
+
+If either of these checks fail, the commands will abort immediately.
+
+** gitsync-nncp autocommit
+
+If there are any uncommitted changes, commit them with =git commit -am=.  The generated commit message will name the local hostname and branch for future reference.
+
+This command will not call =git add= or =git rm=, though if you have used those commands but not committed the changes yet, those changes will be committed along with the other changes.  Also, since =-a= is used, and deleted local files will be reflected in the commit.
+
+If you use autocommit, it is often useful to wrap it in a script that makes appropriate calls to =git add=.
+
+** gitsync-nncp merge
+
+This command merges all remote branches into the local branch by calling =git merge= on each.  It is possible that you may be prompted for a git commit message if changes are non-fast-forward.  It is also possible for this command to fail if there were merge conflicts.  If so, resolve them in the usual way (edit files, git add, git commit) and then rerun this command.
+
+** gitsync-nncp push command [args...]
+
+This command checks the state of the local branch and compares it to the state at last push.  If there are differences, it prepares a git bundle for transmission, and hands it off to the given command.  After the given arguments, the name of the local branch is added.
+
+The given command should often be something like =nncp-exec area:localgit reponame=.
+
+** gitsync-nncp push_full command [args...]
+
+Performs an =autocommit=, then =push=.  The meaning of command/args are as defined in =push=.
+
+** gitsync-nncp receive REPODIR BRANCHNAME
+
+Expects a git bundle on stdin.  It applies it to the branch =gitsync-nncp/BRANCHNAME= on the git repo located at =REPODIR=.  It does not modify the working directory or checked out branch of the repo.  This is designed to be the target of nncp-exec.
+
+** gitsync-nncp sync command [args...]
+
+Performs these commands in order:
+
+- autocommit
+- merge
+- push
+
+The passed command/args are passed to push as above.  Please see the relevant documentation fot ehse other commands.
+
+This command has the potential to be interactive or fail due to the merge.
+
+The idea of it is: commit our local changes, merge in remote ones, and then send the new local state to all the remotes.
+
+* Use in cron
+
+It is perfectly safe to call =gitsync-nncp push= from cron.  This is one way to make sure that you periodically update the remote with your local changes.
+
+* Use in git hooks
+
+It is also safe to call =gitsync-nncp push= from a git post-commit hook.  This will cause every local commit to be immediately propagated to the remote.
+
+* Example: non-NNCP commands: gpg encryption of packets
+
+Perhaps you don't want to trust NNCP or the user nncp runs as - maybe it's a systemwide installation someone else did, etc.  You can always use gpg to encrypt (and perhaps sign) your packets first.  To do this, you will first need to generate a GPG keypair with no passphrase, make it available on every machine, and set gpg to trust it ultimately everywhere.  Then you may have a couple of scripts.  The first is gitsync-send:
+
+#+begin_src bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+gpg -e -r 0x[fingerprint] -u 0x[fingerprint] --sign - | \
+    nncp-exec area:localgit repo1 "$@"
+#+end_src
+
+You'll use this with commands like push; for instance: =gitsync-nncp push ~/bin/gitsync-send=.
+
+Now, how about the receiving side?  Here's gitsync-recv:
+
+#+begin_src bash
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Log a message
+logit () {
+   logger -p info -t "`basename "$0"`[$$]" "$1"
+}
+
+# Log an error message
+logerror () {
+   logger -p err -t "`basename "$0"`[$$]" "$1"
+}
+
+# Log stdin with the given code.  Used normally to log stderr.
+logstdin () {
+   logger -p info -t "`basename "$0"`[$$/$1]"
+}
+
+# Run command, logging stderr and exit code
+runcommand () {
+   logit "Running $*"
+   if "$@" 2> >(logstdin "$1") ; then
+      logit "$1 exited successfully"
+      return 0
+   else
+       RETVAL="$?"
+       logerror "$1 exited with error $RETVAL"
+       return "$RETVAL"
+   fi
+}
+
+TMPDIR="$(mktemp -d)"
+trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
+chmod 0700 "$TMPDIR"
+
+STATUSFILE="$TMPDIR/status"
+DATAFILE="$TMPDIR/data"
+
+# decrypt stdin
+
+runcommand gpg --status-file "$STATUSFILE" -d > "$DATAFILE"
+
+# This will fail if we don't find what we are looking for there
+
+runcommand grep -q 'VALIDSIG [fingerprint]' "$STATUSFILE"
+runcommand /home/jgoerzen/bin/gitsync-nncp receive "$@" < "$DATAFILE"
+#+end_src
+
+This decrypts and verifies the data, then passes it on to gitsync-nncp.  Now, your nncp-hjson will point to this script instead of gitsync-nncp receive.
+
+Of course, you'll need to use your local fingerprint in all the relevant spots above.
+
+
+* Use when NNCP runs as a different user
+
+My [[https://github.com/jgoerzen/nncp-tools/blob/main/docs/nncp-sudo.org][using NNCP with sudo]] documentation contains an example of using gitsync-nncp under sudo.
+
+* Example: syncing org-mode and org-roam files
+
+I am a huge fan of [[https://orgmode.org/][org-mode]] and [[https://www.orgroam.com/][org-roam]].  gitsync-nncp was written initially to meet a need I had with these.
+
+In my =~/org=, I have a Makefile that looks like this.  (It could as easily have been a shell script, too):
+
+#+begin_src make
+SHELL := /bin/bash
+SENDCMD := /home/jgoerzen/bin/gitsync-send
+GS := /home/jgoerzen/bin/gitsync-nncp
+
+ADD := git add data roam/data roam/*/data *.org */*.org roam/*/*.org roam/*/*/*.org Makefile .gitignore *.org_archive
+
+.PHONY: all
+all: sync
+
+.PHONY: push
+push:
+	-$(ADD)
+	$(GS) push_full $(SENDCMD)
+
+.PHONY: sync
+sync:
+	-$(ADD)
+	$(GS) sync $(SENDCMD)
+#+end_src
+
+All this does is make a little convenient wrapper around the sync and push commands.  In my user's crontab, I call =make -C $HOME/org push 2>&1 | logger --tag 'orgsync'= .  I can also =make sync= whenever I want.
+
+* COPYRIGHT
+
+    gitsync-nncp
+    Copyright (C) 2021 JOhn Goerzen <jgoerzen@complete.org>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
