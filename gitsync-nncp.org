@@ -1,0 +1,22 @@
+#+TITLE: gitsync-nncp Manual
+
+* Introduction
+** Why it's here
+** Operation Overview
+
+branch names - like hostnames, no master
+
+* Setup
+** Making a new git repo
+
+You can use =git init= like usual, but then rename the main/master branch to something unique for your machine; for instance, its hostname; for instance:
+
+=git branch -m alice=
+
+Now, we also need to create another branch that gitsync-nncp uses to track progress.  These branches begin with =gitsync-nncp/=.
+
+=git branch gitsync-nncp/alice=
+
+
+
+** Using an existing git repo

@@ -55,6 +55,19 @@ syntaxerror () {
     cat <<EOF
 Syntax: $0 command [params...]
 
+Commands:
+
+autocommit
+
+merge
+
+push pushcommand...
+
+push_full pushcommand...
+
+receive repodir branch
+
+sync pushcommand...
 
 EOF
     exit 5
@@ -109,20 +122,27 @@ mktempdir () {
 # optional parameters; will pass the name of the branch to it, and pipe
 # the bundle to it.
 cmd_push () {
+    if [ -z "${1:-}" ]; then
+        syntaxerror "push: missing command name"
+    fi
     branchcheck
     BRANCH="$(getbranch)"
-    GSNBRANCH="gitsync-nncp/$(BRANCH)"
+    GSNBRANCH="gitsync-nncp/${BRANCH}"
 
     if ! branch_exists "$GSNBRANCH"; then
-        syntaxerror "Branch $GSNBRANCH missing"
+        exiterror "Branch $GSNBRANCH missing"
     fi
 
-    TMPDIR="$(mktempdir)"
-    BUNDLENAME="$TMPDIR/bundle"
-    runcommand git bundle create "$BUNDLENAME" "${GSNBRANCH}..HEAD"
-    runcommand "$@" "$BRANCH" < "$BUNDLENAME"
+    if ! branches_same "$BRANCH" "$GSNBRANCH"; then
+        TMPDIR="$(mktempdir)"
+        BUNDLENAME="$TMPDIR/bundle"
+        PUSHEDREV="$(git rev-parse "$BRANCH")"
+        runcommand git bundle create "$BUNDLENAME" "${GSNBRANCH}..HEAD"
+        runcommand "$@" "$BRANCH" < "$BUNDLENAME"
+        runcommand git update-ref "$GSNBRANCH" "$PUSHEDREV"
 
-    # TMPDIR reaped automatically thanks to mktempdir
+        # TMPDIR reaped automatically thanks to mktempdir
+    fi
 }
 
 # Automatically commits any uncommitted (and added) changes, if any.
@@ -130,12 +150,12 @@ cmd_push () {
 cmd_autocommit () {
     branchcheck
     BRANCH="$(getbranch)"
-    if git diff --exit-code && git diff --cached --exit-code; then
+    if git diff --quiet && git diff --cached --quiet; then
         # Nothing to commit
         exit 0
     fi
 
-    runcommand git commit -am "Automated commit by $0 on $(hostname) on branch $BRANCH"
+    runcommand git commit -am "Automated commit by $0 on host $(hostname), branch $BRANCH"
 }
 
 # Like cmd_push, but does a commit first.
@@ -150,10 +170,10 @@ cmd_receive () {
     branchcheck
     BRANCH="$2"
 
-    GSNBRANCH="gitsync-nncp/$(BRANCH)"
+    GSNBRANCH="gitsync-nncp/${BRANCH}"
 
     if ! branch_exists "$GSNBRANCH"; then
-        syntaxerror "Branch $GSNBRANCH missing"
+        exiterror "Branch $GSNBRANCH missing"
     fi
 
     TMPDIR="$(mktempdir)"
@@ -181,3 +201,30 @@ cmd_sync () {
     cmd_merge
     cmd_push "$@"
 }
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    "autocommit")
+        cmd_autocommit "$@"
+        ;;
+    "merge")
+        cmd_merge "$@"
+        ;;
+    "push")
+        cmd_push "$@"
+        ;;
+    "push_full")
+        cmd_push_full "$@"
+        ;;
+    "receive")
+        cmd_receive "$@"
+        ;;
+    "sync")
+        cmd_sync "$@"
+        ;;
+    *)
+        syntaxerror "Unknown command $COMMAND"
+        ;;
+esac
