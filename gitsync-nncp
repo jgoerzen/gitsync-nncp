@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
 
 #    gitsync-nncp
 #    Copyright (C) 2021 JOhn Goerzen <jgoerzen@complete.org>
@@ -99,6 +98,12 @@ branchcheck () {
     fi
 }
 
+# Test for differences between two branches.  Returns 0 (true) if
+# identical; nonzero (false) if different.
+branches_same () {
+    [ "$(git rev-parse "refs/heads/$1")" = "$(git rev-parse "refs/heads/$2")" ]
+}
+
 # Test for the existence of the named branch.
 branch_exists () {
     # See https://stackoverflow.com/questions/5167957/is-there-a-better-way-to-find-out-if-a-local-git-branch-exists
@@ -129,17 +134,14 @@ cmd_push () {
         exiterror "Branch $GSNBRANCH missing"
     fi
 
-    MAINBRANCHREV="$(git rev-parse "refs/heads/$BRANCH")"
-    GSNBRANCHREV="$(git rev-parse "refs/heads/$GSNBRANCH")"
-
-    if [ "$MAINBRANCHREV" != "$GSNBRANCHREV" ]; then
+    if ! branches_same "$BRANCH" "$GSNBRANCH"; then
         TMPDIR="$(mktempdir)"
         trap 'ECODE=$?; rm -r "$TMPDIR"; exit $ECODE' EXIT INT TERM
-        chmod 0700 "$TMPDIR"
         BUNDLENAME="$TMPDIR/bundle"
-        runcommand git bundle create "$BUNDLENAME" "refs/heads/${GSNBRANCH}..${MAINBRANCHREV}"
+        PUSHEDREV="$(git rev-parse "refs/heads/$BRANCH")"
+        runcommand git bundle create "$BUNDLENAME" "refs/heads/${GSNBRANCH}..HEAD"
         runcommand "$@" "$BRANCH" < "$BUNDLENAME"
-        runcommand git update-ref "refs/heads/$GSNBRANCH" "$MAINBRANCHREV"
+        runcommand git update-ref "refs/heads/$GSNBRANCH" "$PUSHEDREV"
 
         # TMPDIR reaped automatically thanks to mktempdir
         echo "+++ push of $BRANCH successful"
