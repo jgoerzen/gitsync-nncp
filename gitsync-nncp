@@ -180,6 +180,13 @@ hascommit () {
     git cat-file -e "${1}^{commit}"
 }
 
+# True if a BRANCH has the given commit.
+# Commit is $1, branch is $2
+# https://stackoverflow.com/questions/43535132/given-a-commit-id-how-to-determine-if-current-branch-contains-the-commit
+hasbranchcommit () {
+   git merge-base --is-ancestor "${1}^{commit}" "$2"
+}
+
 # Expects a bundle on stdin, and a repo directory and branch name as parameter.
 #
 # Sometimes we can receive packets out of order, and git even accepts this, so
@@ -201,8 +208,8 @@ cmd_receive () {
     cat > "$BUNDLENAME"
 
     BUNDLECOMMIT="$(packrev "$BUNDLENAME")"
-    if hascommit "$BUNDLECOMMIT"; then
-        logit "Already have commit $BUNDLECOMMIT; exiting with success"
+    if hasbranchcommit "$BUNDLECOMMIT" "$GSNBRANCH"; then
+        logit "Already have commit $BUNDLECOMMIT on $GSNBRANCH; exiting with success"
     else
         runcommand git fetch "$BUNDLENAME" "HEAD:refs/heads/$GSNBRANCH"
         echo "+++ Receive of $BRANCH into $1 successful"
