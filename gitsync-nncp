@@ -118,6 +118,11 @@ mktempdir () {
     echo "$TMPDIR"
 }
 
+# Get the rev from a pack
+packrev () {
+    git ls-remote "$1" | grep 'HEAD$' | awk '{ print $1 }'
+}
+
 
 # Push committed changes.  Requires the name of a command to send and
 # optional parameters; will pass the name of the branch to it, and pipe
@@ -140,7 +145,7 @@ cmd_push () {
         BUNDLENAME="$TMPDIR/bundle"
         runcommand git bundle create "$BUNDLENAME" "refs/heads/${GSNBRANCH}..HEAD"
         runcommand "$@" "$BRANCH" < "$BUNDLENAME"
-        PUSHEDREV="$(git ls-remote "$BUNDLENAME" | grep 'HEAD$' | awk '{ print $1 }')"
+        PUSHEDREV="$(packrev "$BUNDLENAME")"
         runcommand git update-ref "refs/heads/$GSNBRANCH" "$PUSHEDREV"
 
         # TMPDIR reaped automatically thanks to mktempdir
@@ -170,7 +175,15 @@ cmd_push_full () {
     cmd_push "$@"
 }
 
+# True if the repo has the given commit.
+hascommit () {
+    git cat-file -e "${1}^{commit}"
+}
+
 # Expects a bundle on stdin, and a repo directory and branch name as parameter.
+#
+# Sometimes we can receive packets out of order, and git even accepts this, so
+# we already have the commit at the HEAD of this pack, just return.
 cmd_receive () {
     cd "$1"
     branchcheck
@@ -187,8 +200,13 @@ cmd_receive () {
     BUNDLENAME="$TMPDIR/bundle"
     cat > "$BUNDLENAME"
 
-    runcommand git fetch "$BUNDLENAME" "HEAD:refs/heads/$GSNBRANCH"
-    echo "+++ Receive of $BRANCH into $1 successful"
+    BUNDLECOMMIT="$(packrev "$BUNDLENAME")"
+    if hascommit "$BUNDLECOMMIT"; then
+        logit "Already have commit $BUNDLECOMMIT; exiting with success"
+    else
+        runcommand git fetch "$BUNDLENAME" "HEAD:refs/heads/$GSNBRANCH"
+        echo "+++ Receive of $BRANCH into $1 successful"
+    fi
 }
 
 # Merge all remote branches.
