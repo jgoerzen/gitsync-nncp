@@ -177,14 +177,14 @@ cmd_push_full () {
 
 # True if the repo has the given commit.
 hascommit () {
-    git cat-file -e "${1}^{commit}"
+    git cat-file -e "${1}^{commit}" &> /dev/null
 }
 
 # True if a BRANCH has the given commit.
 # Commit is $1, branch is $2
 # https://stackoverflow.com/questions/43535132/given-a-commit-id-how-to-determine-if-current-branch-contains-the-commit
 hasbranchcommit () {
-   git merge-base --is-ancestor "${1}^{commit}" "$2"
+   git merge-base --is-ancestor "${1}^{commit}" "$2" &> /dev/null
 }
 
 # Expects a bundle on stdin, and a repo directory and branch name as parameter.
