@@ -357,10 +357,14 @@ It's important that:
 - Every machine have a uniquely-named branch that is checked out locally
 - The gitsync-nncp commands are never run when a different branch is the current one on a machine
 
+* Integrations
+
+There is a git-annex plugin for gitsync-nncp here: <https://git.sr.ht/~ehmry/git-annex-remote-nncp>
+
 * COPYRIGHT
 
     gitsync-nncp
-    Copyright (C) 2021 JOhn Goerzen <jgoerzen@complete.org>
+    Copyright (C) 2021-2022 John Goerzen <jgoerzen@complete.org>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
