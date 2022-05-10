@@ -1,5 +1,7 @@
 #+TITLE: gitsync-nncp
 
+*This project is no longer hosted on Github.  Please visit it at its [[https://salsa.debian.org/jgoerzen/gitsync-nncp][new home]].*
+
 gitsync-nncp is a program to help you keep git directories in sync -- asynchronously, with an arbitrary number of other machines.
 
 See its [[file:gitsync-nncp.org][comprehensive documentation]] for more details.
