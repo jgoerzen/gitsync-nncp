@@ -34,7 +34,7 @@ Besides the above, gitsync-nncp:
 - Is designed to be easily scriptable and cronnable
 - Is written in easy-to-understand shell code
 - Is designed to be as safe as possible
-- Doesn't actually require NNCP; the transmission parts are entirely separate and you can substitute your own transport.  It's all just pipes.
+- Doesn't actually require NNCP; the transmission parts are entirely separate and you can substitute your own transport.  It's all just pipes.  It works particularly well with my tool [[https://www.complete.org/filespooler/][Filespooler]] as well.
 - Logs to syslog
 
 gitsync-nncp is NOT:
